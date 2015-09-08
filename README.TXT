@@ -1,3 +1,7 @@
+extract-xiso v2.7.2
+
+Added -X option to extract only the default.xbe.
+
 extract-xiso v2.7.1 
 
 integration of somsky's and Aiyyo's improvements
