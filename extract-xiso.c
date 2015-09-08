@@ -229,6 +229,8 @@
 		01.11.14 twillecomme: Intégration of aiyyo's and somski's work. 
 						Minor warn fixes.
 
+		08.09.15 wayo: Added -X option to extract only the default.xbe file.
+
 	enjoy!
 	
 	in
@@ -412,7 +414,7 @@
 #endif
 
 
-#define exiso_version					"2.7.1 (01.11.14)"
+#define exiso_version					"2.7.2 (08.09.15)"
 #define VERSION_LENGTH					16
 
 #define banner							"extract-xiso v" exiso_version " for " exiso_target " - written by in <in@fishtank.com>\n"
@@ -461,6 +463,7 @@
     -s                  Skip $SystemUpdate folder.\n\
     -u <user name>      Ftp user name (defaults to \"xbox\")\n\
     -v                  Print version information and exit.\n\
+    -X                  Extract default.xbe only. \n\
 ", banner, argv[ 0 ], argv[ 0 ] );
 #else
 #define usage() 						fprintf( stderr, \
@@ -499,6 +502,7 @@
     -Q                  Run silent (suppress all output).\n\
     -s                  Skip $SystemUpdate folder.\n\
     -v                  Print version information and exit.\n\
+    -X                  Extract default.xbe only. \n\
 ", banner, argv[ 0 ], argv[ 0 ] );
 #endif
 
@@ -585,9 +589,9 @@
 #define DEBUG_DUMP_DIRECTORY			"/Volumes/c/xbox/iso/exiso"
 
 #if ! defined( NO_FTP )
-#define GETOPT_STRING					BURN_OPTION_CHAR "c:d:Df:hlmp:qQrsu:vx"
+#define GETOPT_STRING					BURN_OPTION_CHAR "c:d:Df:hlmp:qQrsu:vxX"
 #else
-#define GETOPT_STRING					BURN_OPTION_CHAR "c:d:Dhlmp:qQrsvx"
+#define GETOPT_STRING					BURN_OPTION_CHAR "c:d:Dhlmp:qQrsvxX"
 #endif
 
 
@@ -718,6 +722,9 @@ static xoff_t							s_total_bytes_all_isos = 0;
 static int								s_total_files_all_isos = 0;
 static bool								s_warned = 0;
 
+
+static bool								s_only_default_xbe = false;
+static char 						   *s_default_xbe = "default.xbe";
 static bool				                s_remove_systemupdate = false; 
 static char				               *s_systemupdate = "$SystemUpdate"; 
 
@@ -852,6 +859,15 @@ int main( int argc, char **argv ) {
 					exit( 1 );
 				}
 				x_seen = true;
+			} break;
+
+			case 'X': {
+				if ( burn || ! extract || rewrite || create ) {
+					usage();
+					exit( 1 );
+				}
+				x_seen = true;
+				s_only_default_xbe = true;
 			} break;
 
 			default: {
@@ -1302,7 +1318,7 @@ int decode_xiso( char *in_xiso, char *in_path, modes in_mode, char **out_iso_pat
 	
 	if ( ! err && ! len ) misc_err( "invalid xiso image name: %s\n", in_xiso, 0, 0 );
 
-	if ( ! err && in_mode == k_extract && in_path ) {
+	if ( ! err && in_mode == k_extract && in_path) {
 		if ( ( cwd = getcwd( nil, 0 ) ) == nil ) mem_err();
 		if ( ! err && mkdir( in_path, 0755 ) );
 		if ( ! err && chdir( in_path ) == -1 ) chdir_err( in_path );
@@ -1316,7 +1332,7 @@ int decode_xiso( char *in_xiso, char *in_path, modes in_mode, char **out_iso_pat
 		exiso_log( "%s %s:\n\n", in_mode == k_extract ? "extracting" : in_mode == k_upload ? "uploading" : in_mode == k_burn ? "burning" : "listing", name );
 
 		if ( in_mode == k_extract ) {
-			if ( ! in_path ) {
+			if ( ! in_path && !s_only_default_xbe ) {
 				if ( ( err = mkdir( iso_name, 0755 ) ) ) mkdir_err( iso_name );
 				if ( ! err && ( err = chdir( iso_name ) ) ) chdir_err( iso_name );
 			}
@@ -1397,6 +1413,7 @@ int traverse_xiso( int in_xiso, dir_node *in_dir_node, xoff_t in_dir_start, char
 	dir_node			   *dir, node;
 	int						err = 0, sector;
 	unsigned short			l_offset = 0, tmp;
+	char 				   *l_path;
 
 	if ( in_dir_node == nil ) in_dir_node = &node;
 
@@ -1496,7 +1513,7 @@ left_processed:
 			} else path = nil;
 	
 			if ( ! err ) {
-				if ( !s_remove_systemupdate || !strstr( dir->filename, s_systemupdate ) )
+				if ( ( !s_remove_systemupdate || !strstr( dir->filename, s_systemupdate ) ) && !s_only_default_xbe)
 				{
 				if ( in_mode == k_extract ) {
 					if ( ( err = mkdir( dir->filename, 0755 ) ) ) mkdir_err( dir->filename );
@@ -1526,11 +1543,19 @@ left_processed:
 			if ( path ) free( path );
 		} else if ( in_mode != k_generate_avl ) {
 			if ( ! err ) {
-				if ( !s_remove_systemupdate || !strstr( in_path, s_systemupdate ) )
+
+				l_path = strdup(dir->filename);
+
+				for(int i = 0; l_path[i]; i++){
+					l_path[i] = tolower(l_path[i]);
+				}
+				
+				if ( ( !s_remove_systemupdate || !strstr( dir->filename, s_systemupdate ) ) && (!s_only_default_xbe || (strcasestr( l_path, s_default_xbe ) && strlen( l_path ) == strlen ( s_default_xbe ) ) ) )
 				{
+					
 
 				if ( in_mode == k_extract || in_mode == k_upload ) {
-						err = extract_file( in_xiso, dir, in_mode, in_path );
+					err = extract_file( in_xiso, dir, in_mode, in_path );
 				} else {
 					exiso_log( "%s%s%s (%lu bytes)%s", in_mode == k_extract ? "extracting " : in_mode == k_upload ? "uploading " : "", in_path, dir->filename, dir->file_size , in_mode == k_extract || in_mode == k_upload ? " " : "" ); flush();
 					exiso_log( "\n" );
@@ -1541,6 +1566,8 @@ left_processed:
 				s_total_bytes += dir->file_size;
 				s_total_bytes_all_isos += dir->file_size;
 				}
+
+				free(l_path);
 			}
 		}
 	}
@@ -2347,7 +2374,6 @@ int write_volume_descriptors( int in_xiso, unsigned long in_total_sectors ) {
 		
 	return err;
 }
-
 
 #if DEBUG
 
